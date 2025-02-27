@@ -16,7 +16,7 @@ pipeline {
                 script {
                     sshagent(['slave-cred']) {
                         sh '''
-                        ssh ubuntu@${TEST_SERVER} "sudo apt update && sudo apt install -y puppet-agent"
+                        ssh -o StrictHostKeyChecking=no @${TEST_SERVER} "sudo apt update && sudo apt install -y puppet-agent"
                         '''
                     }
                 }
