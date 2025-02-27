@@ -11,31 +11,74 @@ pipeline {
 
 
     stages {
-        stage('Install Puppet Agent on Slave') {
+        stage('Install & Configure Puppet on Master') {
+            steps {
+                script {
+                    sshagent(['slave-cred']) {
+                        sh '''
+                        ssh -o StrictHostKeyChecking=no ubuntu@${PUPPET_MASTER} <<EOF
+                        set -e  # Exit on error
+
+                        # Remove old Puppet versions
+                        sudo apt remove --purge puppet puppet-agent puppetserver -y || true
+                        sudo rm -rf /etc/puppetlabs /var/lib/puppet /var/cache/puppet
+                        sudo apt autoremove -y
+
+                        # Install Puppet Server and Puppet Agent
+                        wget https://apt.puppet.com/puppet7-release-jammy.deb
+                        sudo dpkg -i puppet7-release-jammy.deb
+                        sudo apt update
+                        sudo apt install -y puppetserver puppet-agent
+
+                        # Configure Puppet Server
+                        sudo bash -c 'echo "[server]" > /etc/puppetlabs/puppet/puppet.conf'
+                        sudo bash -c 'echo "certname = ${PUPPET_MASTER}" >> /etc/puppetlabs/puppet/puppet.conf'
+                        sudo bash -c 'echo "dns_alt_names = puppet, ${PUPPET_MASTER}" >> /etc/puppetlabs/puppet/puppet.conf'
+
+                        # Reduce memory usage if necessary
+                        sudo sed -i 's/Xms2g/Xms512m/' /etc/default/puppetserver
+                        sudo sed -i 's/Xmx2g/Xmx512m/' /etc/default/puppetserver
+
+                        # Restart Puppet Server
+                        sudo systemctl restart puppetserver
+                        sudo systemctl enable puppetserver
+
+                        # Allow Puppet communication on port 8140
+                        sudo ufw allow 8140/tcp || true
+                        sudo ufw reload || true
+EOF
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Install & Configure Puppet Agent on Slave') {
             steps {
                 script {
                     sshagent(['slave-cred']) {
                         sh '''
                         ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} <<EOF
-                        set -e  # Exit immediately if any command fails
+                        set -e
+
+                        # Remove old Puppet versions
+                        sudo apt remove --purge puppet puppet-agent -y || true
+                        sudo rm -rf /etc/puppetlabs /var/lib/puppet /var/cache/puppet
+                        sudo apt autoremove -y
 
                         # Install Puppet Agent
-                        sudo apt update
-                        sudo apt install -y wget
                         wget https://apt.puppet.com/puppet7-release-jammy.deb
                         sudo dpkg -i puppet7-release-jammy.deb
                         sudo apt update
                         sudo apt install -y puppet-agent
 
-                        # Configure Puppet Agent to connect to Puppet Master
-                        sudo bash -c 'echo "server=${PUPPET_MASTER}" > /etc/puppetlabs/puppet/puppet.conf'
-                        
-                        # Ensure Puppet binaries are available in PATH
-                        echo 'export PATH=$PATH:/opt/puppetlabs/bin' | sudo tee -a /etc/profile
-                        source /etc/profile
+                        # Configure Puppet Agent to talk to Puppet Master
+                        sudo bash -c 'echo "[agent]" > /etc/puppetlabs/puppet/puppet.conf'
+                        sudo bash -c 'echo "server = ${PUPPET_MASTER}" >> /etc/puppetlabs/puppet/puppet.conf'
 
                         # Restart Puppet Agent
                         sudo systemctl restart puppet
+                        sudo systemctl enable puppet
 
                         # Request Puppet Certificate
                         sudo /opt/puppetlabs/bin/puppet agent --test --waitforcert 60
@@ -46,24 +89,24 @@ EOF
             }
         }
 
-        stage('Sign Puppet Certificate on Master') {
+        stage('Approve Puppet Certificates') {
             steps {
                 script {
                     sshagent(['slave-cred']) {
                         sh '''
-                        ssh -o StrictHostKeyChecking=no ubuntu@${PUPPET_MASTER} "sudo puppetserver ca sign --all"
+                        ssh -o StrictHostKeyChecking=no ubuntu@${PUPPET_MASTER} "sudo /opt/puppetlabs/bin/puppetserver ca sign --all"
                         '''
                     }
                 }
             }
         }
 
-        stage('Trigger Puppet Agent to Install Docker') {
+        stage('Trigger Puppet Agent to Apply Configuration on Slave') {
             steps {
                 script {
                     sshagent(['slave-cred']) {
                         sh '''
-                        ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} "sudo /opt/puppetlabs/bin/puppet agent --test || true"
+                        ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} "sudo /opt/puppetlabs/bin/puppet agent --test"
                         '''
                     }
                 }
