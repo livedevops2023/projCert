@@ -16,18 +16,30 @@ pipeline {
                 script {
                     sshagent(['slave-cred']) {
                         sh '''
-                        ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} << 'EOF'
-                        set -e
+                        ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} <<EOF
+                        set -e  # Exit immediately if any command fails
+
+                        # Install Puppet Agent
                         sudo apt update
                         sudo apt install -y wget
                         wget https://apt.puppet.com/puppet7-release-jammy.deb
                         sudo dpkg -i puppet7-release-jammy.deb
                         sudo apt update
                         sudo apt install -y puppet-agent
-                        echo "server=${PUPPET_MASTER}" | sudo tee -a /etc/puppetlabs/puppet/puppet.conf
+
+                        # Configure Puppet Agent to connect to Puppet Master
+                        sudo bash -c 'echo "server=${PUPPET_MASTER}" > /etc/puppetlabs/puppet/puppet.conf'
+                        
+                        # Ensure Puppet binaries are available in PATH
+                        echo 'export PATH=$PATH:/opt/puppetlabs/bin' | sudo tee -a /etc/profile
+                        source /etc/profile
+
+                        # Restart Puppet Agent
                         sudo systemctl restart puppet
+
+                        # Request Puppet Certificate
                         sudo /opt/puppetlabs/bin/puppet agent --test --waitforcert 60
-    EOF
+EOF
                         '''
                     }
                 }
@@ -51,7 +63,7 @@ pipeline {
                 script {
                     sshagent(['slave-cred']) {
                         sh '''
-                        ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} "sudo puppet agent --test || true"
+                        ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} "sudo /opt/puppetlabs/bin/puppet agent --test || true"
                         '''
                     }
                 }
