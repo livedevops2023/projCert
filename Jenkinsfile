@@ -11,12 +11,22 @@ pipeline {
 
 
     stages {
-        stage('Install Puppet Agent') {
+        stage('Install Puppet Agent on Slave') {
             steps {
                 script {
                     sshagent(['slave-cred']) {
                         sh '''
-                        ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} "sudo apt update && sudo apt install -y puppet-agent"
+                        ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} << 'EOF'
+                        sudo apt update
+                        sudo apt install -y wget
+                        wget https://apt.puppet.com/puppet7-release-jammy.deb
+                        sudo dpkg -i puppet7-release-jammy.deb
+                        sudo apt update
+                        sudo apt install -y puppet-agent
+                        echo "server=${PUPPET_MASTER}" | sudo tee -a /etc/puppetlabs/puppet/puppet.conf
+                        sudo systemctl restart puppet
+                        sudo puppet agent --test --waitforcert 60
+                        EOF
                         '''
                     }
                 }
@@ -28,7 +38,7 @@ pipeline {
                 script {
                     sshagent(['slave-cred']) {
                         sh '''
-                        ssh ubuntu@${PUPPET_MASTER} "sudo puppet cert sign --all"
+                        ssh -o StrictHostKeyChecking=no ubuntu@${PUPPET_MASTER} "sudo puppetserver ca sign --all"
                         '''
                     }
                 }
@@ -40,7 +50,7 @@ pipeline {
                 script {
                     sshagent(['slave-cred']) {
                         sh '''
-                        ssh ubuntu@${TEST_SERVER} "sudo puppet agent --test || true"
+                        ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} "sudo puppet agent --test || true"
                         '''
                     }
                 }
@@ -52,7 +62,7 @@ pipeline {
                 script {
                     sshagent(['slave-cred']) {
                         sh '''
-                        ssh ubuntu@${TEST_SERVER} "rm -rf ~/app && git clone ${GIT_REPO} ~/app"
+                        ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} "rm -rf ~/app && git clone ${GIT_REPO} ~/app"
                         '''
                     }
                 }
@@ -64,7 +74,7 @@ pipeline {
                 script {
                     sshagent(['slave-cred']) {
                         sh '''
-                        ssh ubuntu@${TEST_SERVER} "cd ~/app && sudo docker build -t ${DOCKER_IMAGE} ."
+                        ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} "cd ~/app && sudo docker build -t ${DOCKER_IMAGE} ."
                         '''
                     }
                 }
@@ -76,7 +86,7 @@ pipeline {
                 script {
                     sshagent(['slave-cred']) {
                         sh '''
-                        ssh ubuntu@${TEST_SERVER} "
+                        ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} "
                         sudo docker stop ${CONTAINER_NAME} || true &&
                         sudo docker rm ${CONTAINER_NAME} || true &&
                         sudo docker run -d -p 8080:80 --name ${CONTAINER_NAME} ${DOCKER_IMAGE}
@@ -92,7 +102,7 @@ pipeline {
                 script {
                     sshagent(['slave-cred']) {
                         sh '''
-                        ssh ubuntu@${TEST_SERVER} "java -jar /opt/selenium/selenium.jar"
+                        ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} "java -jar /opt/selenium/selenium.jar"
                         '''
                     }
                 }
@@ -106,7 +116,7 @@ pipeline {
             script {
                 sshagent(['slave-cred']) {
                     sh '''
-                    ssh ubuntu@${TEST_SERVER} "sudo docker rm -f ${CONTAINER_NAME} || true"
+                    ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} "sudo docker rm -f ${CONTAINER_NAME} || true"
                     '''
                 }
             }
