@@ -17,6 +17,7 @@ pipeline {
                     sshagent(['slave-cred']) {
                         sh '''
                         ssh -o StrictHostKeyChecking=no ubuntu@${TEST_SERVER} << 'EOF'
+                        set -e
                         sudo apt update
                         sudo apt install -y wget
                         wget https://apt.puppet.com/puppet7-release-jammy.deb
