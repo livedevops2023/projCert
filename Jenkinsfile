@@ -25,7 +25,7 @@ pipeline {
                         sudo apt install -y puppet-agent
                         echo "server=${PUPPET_MASTER}" | sudo tee -a /etc/puppetlabs/puppet/puppet.conf
                         sudo systemctl restart puppet
-                        sudo puppet agent --test --waitforcert 60
+                        sudo /opt/puppetlabs/bin/puppet agent --test --waitforcert 60
                         EOF
                         '''
                     }
